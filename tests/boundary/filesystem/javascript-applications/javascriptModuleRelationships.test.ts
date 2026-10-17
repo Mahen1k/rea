@@ -82,75 +82,97 @@ it.each([
 );
 
 describe("cross-version source module identity", () => {
-  it("keeps exact source identity without claiming unchanged unresolved relationships", async () => {
-    const root = await createTestTempDirectory("rea-source-module-sibling-");
-    const versions = await Promise.all(
-      ["left", "right"].map(async (name) => {
-        const path = join(root, name);
-        await writeFixtureFiles(path, {
-          "main.js": 'require("./util.js");\n',
-          "util.js": `module.exports = ${JSON.stringify(name)};\n`,
-        });
-        return reconstructJavaScriptFixture(path);
-      }),
-    );
-    const [left, right] = versions;
-    if (left === undefined || right === undefined)
-      throw new Error("Missing JavaScript application version");
-    const leftModule = findSourceModule(left.graph, "main.js");
-    const rightModule = findSourceModule(right.graph, "main.js");
-    if (leftModule === undefined || rightModule === undefined)
-      throw new Error("Missing main source module");
-    const leftObservation = leftModule.observations.find(
-      ({ properties }) => properties.semantic_role === "source-module",
-    );
-    const rightObservation = rightModule.observations.find(
-      ({ properties }) => properties.semantic_role === "source-module",
-    );
-    expect(leftObservation?.properties).not.toHaveProperty("container_sha256");
-    expect(rightObservation?.properties).not.toHaveProperty("container_sha256");
-    expect(leftObservation?.properties).toEqual(rightObservation?.properties);
-    expect(leftObservation?.properties.source_sha256).toBe(
-      rightObservation?.properties.source_sha256,
-    );
+  it.each([
+    ["an imported sibling", "util.js", "unknown"],
+    ["an unrelated sibling", "sibling.js", "unchanged"],
+  ] as const)(
+    "keeps source identity exact when %s changes",
+    async (_, changedPath, status) => {
+      const root = await createTestTempDirectory("rea-source-module-sibling-");
+      const versions = await Promise.all(
+        ["left", "right"].map(async (name) => {
+          const path = join(root, name);
+          await writeFixtureFiles(path, {
+            "main.js": 'require("./util.js");\n',
+            "util.js": "module.exports = 42;\n",
+            [changedPath]: `module.exports = ${JSON.stringify(name)};\n`,
+          });
+          return reconstructJavaScriptFixture(path);
+        }),
+      );
+      const [left, right] = versions;
+      if (left === undefined || right === undefined)
+        throw new Error("Missing JavaScript application version");
+      const leftModule = findSourceModule(left.graph, "main.js");
+      const rightModule = findSourceModule(right.graph, "main.js");
+      if (leftModule === undefined || rightModule === undefined)
+        throw new Error("Missing main source module");
+      const leftObservation = leftModule.observations.find(
+        ({ properties }) => properties.semantic_role === "source-module",
+      );
+      const rightObservation = rightModule.observations.find(
+        ({ properties }) => properties.semantic_role === "source-module",
+      );
+      expect(leftObservation?.properties).not.toHaveProperty(
+        "container_sha256",
+      );
+      expect(rightObservation?.properties).not.toHaveProperty(
+        "container_sha256",
+      );
+      expect(leftObservation?.properties).toEqual(rightObservation?.properties);
+      expect(leftObservation?.properties.source_sha256).toBe(
+        rightObservation?.properties.source_sha256,
+      );
 
-    const comparison = compareJavaScriptApplicationVersions({
-      left: {
-        evidenceId: `ev_${"a".repeat(64)}`,
-        rootArtifactSha256: left.root_artifact_sha256,
-        graph: left.graph,
-      },
-      right: {
-        evidenceId: `ev_${"b".repeat(64)}`,
-        rootArtifactSha256: right.root_artifact_sha256,
-        graph: right.graph,
-      },
-      leftNativeEvidence: [],
-      rightNativeEvidence: [],
-    });
+      const comparison = compareJavaScriptApplicationVersions({
+        left: {
+          evidenceId: `ev_${"a".repeat(64)}`,
+          rootArtifactSha256: left.root_artifact_sha256,
+          graph: left.graph,
+        },
+        right: {
+          evidenceId: `ev_${"b".repeat(64)}`,
+          rootArtifactSha256: right.root_artifact_sha256,
+          graph: right.graph,
+        },
+        leftNativeEvidence: [],
+        rightNativeEvidence: [],
+      });
 
-    const item = comparison.items.find(
-      ({ left_node_id }) => left_node_id === leftModule.node_id,
-    );
-    expect(item).toMatchObject({
-      status: "unknown",
-      right_node_id: rightModule.node_id,
-      match: {
-        status: "matched",
-        basis: "exact-module-source-digest",
-        confidence: "exact",
-      },
-    });
-    expect(item?.dimensions).not.toContain("content");
-    expect(item?.dimensions).not.toContain("properties");
-    expect(item?.limitations).toEqual(
-      expect.arrayContaining([
-        expect.stringMatching(
-          /Incomplete graph coverage|Relationship target identity remains unresolved/,
+      const item = comparison.items.find(
+        ({ left_node_id }) => left_node_id === leftModule.node_id,
+      );
+      expect(item).toMatchObject({
+        status,
+        right_node_id: rightModule.node_id,
+        dimensions: [],
+        match: {
+          status: "matched",
+          basis: "exact-module-source-digest",
+          confidence: "exact",
+        },
+      });
+      expect(comparison.coverage.status).toBe("complete-within-inputs");
+      if (status === "unknown")
+        expect(item?.limitations.join(" ")).toMatch(
+          /relationship.*identity.*unresolved/iu,
+        );
+      else expect(item?.limitations).toEqual([]);
+      for (const module of [leftModule, rightModule])
+        expect(
+          comparison.graph.nodes.find(
+            ({ node_id }) => node_id === module.node_id,
+          ),
+        ).toEqual(module);
+      expect(
+        comparison.graph.edges.filter(
+          ({ relation, properties }) =>
+            relation === "changed_from" &&
+            properties.comparison_item_id === item?.item_id,
         ),
-      ]),
-    );
-  });
+      ).toEqual([]);
+    },
+  );
 });
 
 describe("TypeScript source module loader semantics", () => {

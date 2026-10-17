@@ -12,6 +12,8 @@ import {
 const script = `
 import { PlaywrightElectronActiveProvider } from "./dist/browser/PlaywrightElectronActiveProvider.js";
 import { electronActiveObservationInputSchema } from "./dist/domain/javascript/electronActiveObservation.js";
+import { BrowserObservationError } from "./dist/domain/browserObservationError.js";
+import { ProviderAdapterError } from "./dist/domain/providerAdapterError.js";
 
 const [scenario, executable, root] = JSON.parse(process.argv[1]);
 let observedRejections = 0;
@@ -109,14 +111,29 @@ if (scenario === "concurrentFailures" || scenario === "failureThenSuccess" || sc
   results = [await capture(launches[scenario] ?? undefined)];
 }
 await new Promise((resolve) => setTimeout(resolve, 50));
+const cleanupComposition = (result) => {
+  if (result.ok || !(result.error instanceof ProviderAdapterError) || !(result.error.cause instanceof AggregateError))
+    return null;
+  const aggregate = result.error.cause;
+  const [primary, cleanup] = aggregate.errors;
+  return {
+    errorCount: aggregate.errors.length,
+    primaryIsCause: aggregate.cause === primary,
+    primaryReason: primary instanceof BrowserObservationError ? primary.reason : null,
+    cleanupReason: cleanup instanceof BrowserObservationError ? cleanup.reason : null,
+    primaryCleanupIncomplete: primary instanceof BrowserObservationError ? primary.cleanupIncomplete : null,
+    cleanupIncomplete: result.error.cleanupIncomplete && cleanup instanceof BrowserObservationError && cleanup.cleanupIncomplete,
+    projectedPrimaryReason: result.error.diagnostics?.primary_error?.details?.reason,
+    projectedCleanupCode: result.error.diagnostics?.cleanup_error?.code,
+  };
+};
 console.log(JSON.stringify({
   before,
   during,
   after: process.listenerCount("unhandledRejection"),
   observedRejections,
-  reasons: results.map((result) => result.ok ? null : result.error.reason ?? null),
   ok: results.map((result) => result.ok),
-  causeReasons: results.map((result) => result.ok ? null : result.error.cause?.reason ?? null),
+  compositions: results.map(cleanupComposition),
   cleanupResources: results.map((result) => result.ok ? null : result.error.cleanupResources ?? null),
   causes: results.map((result) => result.ok ? null : String(result.error.cause?.message).split("\\n")[0]),
 }));
@@ -133,8 +150,16 @@ type Outcome = {
   readonly ok: readonly boolean[];
   readonly causes: readonly (string | null)[];
   readonly observedRejections: number;
-  readonly reasons: readonly (string | null)[];
-  readonly causeReasons: readonly (string | null)[];
+  readonly compositions: readonly ({
+    readonly errorCount: number;
+    readonly primaryIsCause: boolean;
+    readonly primaryReason: string | null;
+    readonly cleanupReason: string | null;
+    readonly primaryCleanupIncomplete: boolean | null;
+    readonly cleanupIncomplete: boolean;
+    readonly projectedPrimaryReason: string;
+    readonly projectedCleanupCode: string;
+  } | null)[];
   readonly cleanupResources: readonly (readonly string[] | null)[];
 };
 
@@ -304,16 +329,18 @@ processTest(
     expect(observed.observedRejections).toBe(3);
     expect(observed.ok).toEqual([false, false, false, false, false]);
     expect(observed.causes[0]).toBe("electron.launch: alpha failed");
-    expect(observed.reasons).toEqual([
+    expect(observed.compositions).toEqual([
       null,
-      "cleanup_failed",
-      "cleanup_failed",
-      "cleanup_failed",
-      "cleanup_failed",
-    ]);
-    expect(observed.causeReasons).toEqual([
-      null,
-      ...Array.from({ length: 4 }, () => "process_ownership_unavailable"),
+      ...Array.from({ length: 4 }, () => ({
+        errorCount: 2,
+        primaryIsCause: true,
+        primaryReason: "process_ownership_unavailable",
+        cleanupReason: "cleanup_failed",
+        primaryCleanupIncomplete: false,
+        cleanupIncomplete: true,
+        projectedPrimaryReason: "process_ownership_unavailable",
+        projectedCleanupCode: "cleanup_incomplete",
+      })),
     ]);
     expect(observed.cleanupResources).toEqual([
       [],

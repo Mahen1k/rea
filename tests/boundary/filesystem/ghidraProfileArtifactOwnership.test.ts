@@ -1,3 +1,4 @@
+import { AnalysisCancelledError } from "../../../src/domain/analysisErrorCore.js";
 import * as extensionModule from "../../../src/ghidra/extensions/GhidraExtensions.js";
 import { createHash } from "node:crypto";
 import { basename } from "node:path";
@@ -364,7 +365,7 @@ it.each(["seed", "extension"] as const)(
   },
 );
 
-it("joins whole provider resolution before shutdown and gates the next admission", async () => {
+it("cancels and joins profile resolution before admitting its replacement", async () => {
   const root = await createTestTempDirectory("rea-profile-completion-");
   const jar = join(root, "extension.jar");
   const seed = join(root, "seeds.tsv");
@@ -406,17 +407,17 @@ it("joins whole provider resolution before shutdown and gates the next admission
     expect(opens).toBe(count);
     expect(provider.hasPendingOwnedResources()).toBe(true);
     release.resolve();
-    const stopped = await resolving;
-    if (stopped.ok) throw new Error("Expected owned resolution cancellation");
-    expect(stopped.error.cause).toBe(STARTUP_OWNER_CLOSED);
-    expect(stopped).toMatchObject({
-      ok: false,
-      error: {
-        _tag: "AnalysisCancelledError",
-        operation: "open_binary",
-        cause: STARTUP_OWNER_CLOSED,
-      },
+    const interrupted = await resolving;
+    expect(interrupted.ok).toBe(false);
+    if (interrupted.ok)
+      throw new Error("Expected provider shutdown cancellation");
+    expect(interrupted.error).toBeInstanceOf(AnalysisCancelledError);
+    expect(interrupted.error).toMatchObject({
+      operation: "open_binary",
     });
+    expect(interrupted.error.cause).toBe(STARTUP_OWNER_CLOSED);
+    expect(interrupted.error.cleanupIncomplete).toBe(false);
+    expect(interrupted.error.cleanupResources).toEqual([]);
     expect(await closing).toEqual({ ok: true, value: null });
     expect((await next).ok).toBe(true);
     expect(provider.hasPendingOwnedResources()).toBe(false);

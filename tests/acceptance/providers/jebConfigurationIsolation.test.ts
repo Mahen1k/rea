@@ -36,7 +36,10 @@ test("keeps compiled CLI discovery usable while JEB rejects its malformed timeou
       arguments: [command, "--json"],
       environment,
     });
-    expect(result.exitCode, result.stderr).toBe(0);
+    expect(
+      result.exitCode,
+      `${command}: ${result.stdout}${result.stderr}`,
+    ).toBe(0);
     expect(result.json).toMatchObject({
       capabilities: expect.arrayContaining([
         expect.objectContaining({
