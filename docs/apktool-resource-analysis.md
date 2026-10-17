@@ -38,13 +38,15 @@ reports `capability_unavailable`.
 rea inspect-apktool-client
 rea decode-android-resources /targets/Example.apk
 rea decode-android-resources /targets/Example.apk --locale de
+rea decode-android-resources /targets/Example.apk --locales de --locales pt-BR
 rea decode-android-resources /targets/Example.apk --no-strings
 ```
 
 Equivalent MCP methods are `inspect_apktool_client` and
 `decode_android_resources`. The decode request takes `path`, an optional
-`locale` (project `res/values-<locale>/strings.xml` instead of the default
-table), and `include_strings` (default true). Regional locales such as `pt-BR`
+primary `locale` (project `res/values-<locale>/strings.xml` instead of the default
+table), `locales` (repeatable array of additional localized string tables to project
+from the same single decode pass), and `include_strings` (default true). Regional locales such as `pt-BR`
 select Android's `values-pt-rBR`; Android qualifiers such as `pt-rBR` and
 `b+zh+Hans+CN` may also be supplied directly.
 
@@ -64,6 +66,11 @@ select Android's `values-pt-rBR`; Android qualifiers such as `pt-rBR` and
   unparsed rather than flattened — the limitation names the count. The
   default table is bounded to 2000 entries with partial coverage when more
   exist; `locales` lists every `values-<locale>` that has a strings table.
+  When multiple tables are requested, `string_tables` records each projected
+  table with its exact status (`present`, `missing`, `oversized`, `malformed`, or `skipped`),
+  entry counts (`null` when unmeasured or skipped), and coverage from the single decode pass,
+  capped at an aggregate budget of 10,000 strings and 32 MiB XML. Directory aliases (e.g. `pt-BR` and `pt-rBR`)
+  are normalized and reused without redundant reads.
 - **Smali is skipped by design** (`apktool d --no-src`): Java-source
   recovery belongs to the JADX family. Resource smali edits and rebuild are
   a follow-up lane with mutation authority.

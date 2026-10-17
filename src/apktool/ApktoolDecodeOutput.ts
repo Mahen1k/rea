@@ -76,16 +76,17 @@ export const parseDecodedStrings = (
 ): {
   entries: readonly DecodedStringEntry[];
   unparsedCount: number;
+  malformed: boolean;
 } => {
   let document: Document;
   try {
     document = parseXml(stringsXml, "strings.xml");
   } catch {
-    return { entries: [], unparsedCount: 1 };
+    return { entries: [], unparsedCount: 1, malformed: true };
   }
   const root = document.documentElement;
   if (root === null || root.nodeName !== "resources")
-    return { entries: [], unparsedCount: 1 };
+    return { entries: [], unparsedCount: 1, malformed: true };
 
   const entries: DecodedStringEntry[] = [];
   let unparsedCount = 0;
@@ -125,7 +126,7 @@ export const parseDecodedStrings = (
     }
     entries.push({ name, value: value.join("") });
   }
-  return { entries, unparsedCount };
+  return { entries, unparsedCount, malformed: false };
 };
 
 const yamlScalar = (
