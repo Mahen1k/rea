@@ -32,6 +32,7 @@ import { ProviderRunLineage } from "../../../../src/process/ProviderRunLineage.j
 import { PrivateRuntimeRoot } from "../../../../src/process/PrivateRuntimeRoot.js";
 import { OwnedFileHandle } from "../../../../src/filesystem/OwnedFileHandle.js";
 import { GHIDRA_PROCESS_DIAGNOSTIC_BYTES } from "../../../../src/ghidra/GhidraDiagnostics.js";
+import { readWindowsPrivateRuntimeFile } from "../../../../src/windows/WindowsPrivateRuntime.js";
 import {
   GhidraHeadlessLauncher,
   GhidraLaunchError,
@@ -186,6 +187,9 @@ it.skipIf(process.platform !== "win32")(
     const child = await fixture.endpointOpen;
     try {
       expect(await readFile(fixture.endpointPaths[0] ?? "", "utf8")).toBe("");
+      expect(
+        readWindowsPrivateRuntimeFile(fixture.endpointPaths[0] ?? ""),
+      ).toBe("");
       expect(launchReturned).toBe(false);
       child.send("publish-endpoint");
       await expect(started).resolves.toMatchObject({ ok: true });
@@ -1613,7 +1617,8 @@ describe("GhidraClient cleanup and diagnostics", () => {
   it("makes double close idempotent and releases its process runtime", async () => {
     const launcher = new FixtureLauncher();
     const client = clientFor(launcher);
-    await expect(client.start()).resolves.toMatchObject({ ok: true });
+    const started = await client.start();
+    if (!started.ok) throw started.error;
 
     await Promise.all([client.close(), client.close()]);
     await client.close();

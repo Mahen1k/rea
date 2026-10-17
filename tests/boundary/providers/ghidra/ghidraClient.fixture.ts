@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ok } from "../../../../src/domain/result.js";
+import { publishGhidraTestEndpoint } from "../../../fixtures/ghidraRuntime.js";
 import type { GhidraClientOptions } from "../../../../src/ghidra/GhidraClientTypes.js";
 import type {
   GhidraLaunchSession,
@@ -73,6 +74,16 @@ export class GhidraFixtureLauncher implements GhidraLauncher {
     this.tokens.push(session.token);
     const projectRoot = join(session.runtimeRoot, "project");
     await mkdir(projectRoot, { recursive: true });
+    if (
+      process.platform === "win32" &&
+      this.mode !== "silent" &&
+      this.mode !== "exit"
+    ) {
+      // The owned writer normalizes only its child's default file owner.
+      // A direct Node spawn can otherwise create an Administrators-owned file
+      // on elevated runners, despite inheriting the correct private DACL.
+      await publishGhidraTestEndpoint({ path: session.runtimeRoot }, "");
+    }
     const process_ = spawn(process.execPath, [ghidraFixturePath], {
       stdio: ["ignore", "pipe", "pipe", "ipc"],
       env: {

@@ -32,7 +32,7 @@ if (mode === "silent") {
   process.send?.({ event: "fixture-ready" });
   setInterval(() => undefined, 1_000);
 } else {
-  await rm(endpointPath, { force: true });
+  if (process.platform !== "win32") await rm(endpointPath, { force: true });
   const sockets = new Set();
   let rejectedConnections = 0;
   const server = createServer((socket) => {
@@ -77,9 +77,10 @@ if (mode === "silent") {
         port: address.port,
       })}\n`;
       if (process.platform === "win32") {
-        // The guard forbids rename. The launcher must wait for fixture-ready:
-        // even a synchronous Node write would expose the new file before close.
-        const file = await open(endpointPath, "wx");
+        // The launcher exclusively creates this empty file with an owned
+        // writer, so elevated runners retain the current-user owner. Reopening
+        // it preserves that owner; fixture-ready still follows the final close.
+        const file = await open(endpointPath, "r+");
         try {
           if (mode === "gated_endpoint") {
             await new Promise((resolve) => {
