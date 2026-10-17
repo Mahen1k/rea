@@ -36,6 +36,7 @@ export const toolFamilyCatalog = (sources) => {
         ...sources.rustContracts.RUST_TOOL_CONTRACTS,
         ...sources.wasmContracts.WASM_TOOL_CONTRACTS,
         ...sources.sqliteContracts.SQLITE_TOOL_CONTRACTS,
+        ...sources.browserExtensionContracts.BROWSER_EXTENSION_TOOL_CONTRACTS,
         ...sources.captureContracts.CAPTURE_TOOL_CONTRACTS,
         ...sources.signalContracts.SIGNAL_TOOL_CONTRACTS,
       ],
@@ -276,6 +277,11 @@ export const providerCatalog = (sources) => {
     {
       identity: sources.sqliteDomain.SQLITE_PROVIDER_IDENTITY,
       contracts: sources.sqliteContracts.SQLITE_TOOL_CONTRACTS,
+    },
+    {
+      identity: sources.artifactProviders.BROWSER_EXTENSION_PROVIDER,
+      contracts:
+        sources.browserExtensionContracts.BROWSER_EXTENSION_TOOL_CONTRACTS,
     },
     {
       identity: sources.artifactProviders.ARTIFACT_GRAPH_PROVIDER,
