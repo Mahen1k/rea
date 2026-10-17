@@ -113,5 +113,11 @@
     "name": "Ελληνικά",
     "readme": "docs/readme/README_el.md",
     "dir": "ltr"
+  },
+  {
+    "code": "ku",
+    "name": "کوردی",
+    "readme": "docs/readme/README_ku.md",
+    "dir": "rtl"
   }
 ]
