@@ -8,6 +8,7 @@ import {
   AnalysisInputError,
 } from "../domain/analysisErrorCore.js";
 import type { Evidence } from "../domain/evidence.js";
+import type { JsonValue } from "../domain/jsonValue.js";
 import { err, ok, type Result } from "../domain/result.js";
 import {
   createAnalysisExecutionEvidence,
@@ -45,6 +46,13 @@ export const executeProviderOperation = async <
   schema: z.ZodType<TRequest>,
   provider: ProviderOperationPort<TRequest>,
   confidence: "observed" | "derived",
+  projection?: {
+    readonly parameters?: (
+      request: TRequest,
+      execution: AnalysisExecution,
+    ) => Readonly<Record<string, JsonValue>>;
+    readonly authority?: (request: TRequest) => Evidence["authority"];
+  },
 ): Promise<Result<Evidence, AnalysisError>> => {
   if (options?.signal?.aborted)
     return err(
@@ -55,11 +63,13 @@ export const executeProviderOperation = async <
     return err(new AnalysisInputError(operation, { cause: request.error }));
   const executed = await provider.execute(request.data, options);
   if (!executed.ok) return executed;
+  const execution = executed.value;
   const evidence = createAnalysisExecutionEvidence(
     operation,
-    request.data.input,
-    executed.value,
+    projection?.parameters?.(request.data, execution) ?? request.data.input,
+    execution,
     confidence,
+    projection?.authority?.(request.data),
   );
   return completeProviderEvidence(evidence, options?.signal);
 };
