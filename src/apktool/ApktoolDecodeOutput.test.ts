@@ -168,6 +168,7 @@ describe("parseDecodedStrings", () => {
         { name: "debug_flag", value: "true" },
       ],
       unparsedCount: 0,
+      malformed: false,
     });
   });
 
@@ -177,6 +178,7 @@ describe("parseDecodedStrings", () => {
     expect(parseDecodedStrings(stringsXml)).toEqual({
       entries: [{ name: "plain", value: "ok" }],
       unparsedCount: 1,
+      malformed: false,
     });
   });
 
@@ -199,6 +201,7 @@ describe("parseDecodedStrings", () => {
         { name: "edge", value: "\uFFFD" },
       ],
       unparsedCount: 0,
+      malformed: false,
     });
   });
 
@@ -209,6 +212,7 @@ describe("parseDecodedStrings", () => {
     expect(parseDecodedStrings(xml)).toEqual({
       entries: [],
       unparsedCount: 1,
+      malformed: true,
     });
   });
 
@@ -223,6 +227,7 @@ describe("parseDecodedStrings", () => {
         { name: "paired", value: "" },
       ],
       unparsedCount: 0,
+      malformed: false,
     });
   });
 
@@ -234,6 +239,7 @@ describe("parseDecodedStrings", () => {
     ).toEqual({
       entries: [{ name: "real", value: "beforeafter" }],
       unparsedCount: 0,
+      malformed: false,
     });
   });
 
@@ -245,6 +251,7 @@ describe("parseDecodedStrings", () => {
     ).toEqual({
       entries: [{ name: "a", value: "one" }],
       unparsedCount: 0,
+      malformed: false,
     });
   });
 
@@ -265,6 +272,7 @@ describe("parseDecodedStrings", () => {
       ).toEqual({
         entries: [{ name: "raw", value: "x &amp; y" }],
         unparsedCount: 0,
+        malformed: false,
       });
     }
   });
@@ -272,17 +280,17 @@ describe("parseDecodedStrings", () => {
   it("counts a string with no name as unsupported instead of emitting an empty name", () => {
     expect(
       parseDecodedStrings("<resources><string>value</string></resources>"),
-    ).toEqual({ entries: [], unparsedCount: 1 });
+    ).toEqual({ entries: [], unparsedCount: 1, malformed: false });
   });
 
   it("reports malformed XML and unsupported string markup as partial", () => {
     expect(
       parseDecodedStrings("<resources><string name='broken'>no</resources>"),
-    ).toEqual({ entries: [], unparsedCount: 1 });
+    ).toEqual({ entries: [], unparsedCount: 1, malformed: true });
     expect(
       parseDecodedStrings(
         '<resources><string name="styled">Hello <b>world</b></string></resources>',
       ),
-    ).toEqual({ entries: [], unparsedCount: 1 });
+    ).toEqual({ entries: [], unparsedCount: 1, malformed: false });
   });
 });
