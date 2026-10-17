@@ -241,12 +241,10 @@ const collectTimer = (input: TimerCollectionInput): void => {
             node.arguments[0],
             state.parentsByNode,
           );
-          // A const handle has the same value inside a later closure even
-          // when the source positions belong to different function bodies.
+          // The read-order owner distinguishes a deferred lexical capture
+          // from an unresolved read within the current activation.
           const stableClosureCapture =
-            !handle.mutable &&
-            handle.initializers.length === 1 &&
-            handle.referenceInitializers.length === 0;
+            !handle.mutable && snapshot.status === "deferred";
           const origins = [
             ...snapshot.binding.initializers,
             ...snapshot.binding.referenceInitializers,

@@ -62,6 +62,19 @@ export class SemanticDependencyProofs {
     return false;
   }
 
+  /** Visit only shared identity paths, bounded by the smaller proof's trie. */
+  overlaps(
+    first: SemanticDependencyProof,
+    second: SemanticDependencyProof,
+  ): boolean {
+    if (first === undefined || second === undefined) return false;
+    if (first === second || first === true || second === true) return true;
+    return (
+      this.overlaps(first.zero, second.zero) ||
+      this.overlaps(first.one, second.one)
+    );
+  }
+
   has(proof: SemanticDependencyProof, binding: string): boolean {
     const index = this.index(binding);
     for (let bit = this.height - 1; bit >= 0; bit--) {

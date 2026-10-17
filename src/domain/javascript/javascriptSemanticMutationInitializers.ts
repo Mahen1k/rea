@@ -25,6 +25,8 @@ interface StatementPosition {
 interface BindingReadPosition {
   readonly position: StatementPosition | null;
   readonly repeating: boolean;
+  readonly activation: t.Node;
+  readonly outer: BindingReadPosition | null;
 }
 
 interface ExpressionSiblings {
@@ -89,16 +91,40 @@ const statementPosition = (
   const parent = parents.get(statement);
   if (!t.isProgram(parent) && !t.isBlockStatement(parent)) return null;
   const index = parent.body.indexOf(statement);
+  const declarations = t.isVariableDeclaration(statement)
+    ? statement.declarations
+    : t.isForStatement(statement) && t.isVariableDeclaration(statement.init)
+      ? statement.init.declarations
+      : undefined;
   return index < 0
     ? null
     : {
         body: parent.body,
         index,
         declaratorIndex:
-          t.isVariableDeclaration(statement) && declarator !== undefined
-            ? statement.declarations.indexOf(declarator)
-            : -1,
+          declarations !== undefined && declarator !== undefined
+            ? declarations.indexOf(declarator)
+            : t.isForStatement(statement) && declarations !== undefined
+              ? declarations.length
+              : -1,
       };
+};
+
+/** A for initializer precedes its test/body/update within the same statement. */
+const declaratorPosition = (
+  declarator: t.VariableDeclarator,
+  parents: WeakMap<t.Node, t.Node>,
+): StatementPosition | null => {
+  const declaration = parents.get(declarator);
+  if (!t.isVariableDeclaration(declaration)) return null;
+  const parent = parents.get(declaration);
+  return statementPosition(
+    t.isForStatement(parent) && parent.init === declaration
+      ? parent
+      : declaration,
+    parents,
+    declarator,
+  );
 };
 
 const positionPrecedes = (
@@ -385,10 +411,7 @@ const computeDirectInitializerPosition = (
     return directMutationPosition(node, parents);
   const parent = parents.get(node);
   if (t.isVariableDeclarator(parent) && parent.init === node) {
-    const declaration = parents.get(parent);
-    return t.isVariableDeclaration(declaration)
-      ? statementPosition(declaration, parents, parent)
-      : null;
+    return declaratorPosition(parent, parents);
   }
   if (
     t.isAssignmentExpression(parent) &&
@@ -418,10 +441,7 @@ const computeDirectMutationPosition = (
 ): StatementPosition | null => {
   if (t.isForOfStatement(node)) return statementPosition(node, parents);
   if (t.isVariableDeclarator(node)) {
-    const declaration = parents.get(node);
-    return t.isVariableDeclaration(declaration)
-      ? statementPosition(declaration, parents, node)
-      : null;
+    return declaratorPosition(node, parents);
   }
   if (t.isSpreadElement(node)) {
     const array = parents.get(node);
@@ -450,10 +470,7 @@ const computeDirectMutationPosition = (
       return null;
     if (t.isStatement(parent)) return statementPosition(parent, parents);
     if (t.isVariableDeclarator(parent)) {
-      const declaration = parents.get(parent);
-      return t.isVariableDeclaration(declaration)
-        ? statementPosition(declaration, parents, parent)
-        : null;
+      return declaratorPosition(parent, parents);
     }
     current = parent;
   }
@@ -492,10 +509,7 @@ const computeReferenceInitializerPosition = (
     )
       return null;
     if (t.isVariableDeclarator(parent)) {
-      const declaration = parents.get(parent);
-      return t.isVariableDeclaration(declaration)
-        ? statementPosition(declaration, parents, parent)
-        : null;
+      return declaratorPosition(parent, parents);
     }
     current = parent;
   }
@@ -591,16 +605,17 @@ const bindingReadPosition = (
     }
     path.push(current);
     const parent = parents.get(current);
-    if (t.isLoop(parent)) {
-      result = { position: null, repeating: true };
-      break;
-    }
     if (
       parent === undefined ||
       t.isFunction(parent) ||
       delayedInstanceFieldValue(parent, current)
     ) {
-      result = { position: null, repeating: false };
+      result = {
+        position: null,
+        repeating: false,
+        activation: parent ?? current,
+        outer: null,
+      };
       break;
     }
     current = parent;
@@ -611,17 +626,18 @@ const bindingReadPosition = (
     const parent = parents.get(node);
     let position: StatementPosition | null = null;
     if (t.isVariableDeclarator(parent)) {
-      const declaration = parents.get(parent);
-      if (t.isVariableDeclaration(declaration))
-        position = statementPosition(declaration, parents, parent);
-    } else if (
-      t.isStatement(parent) &&
-      !t.isLoop(parent) &&
-      !t.isFunction(parent)
-    )
+      position = declaratorPosition(parent, parents);
+    } else if (t.isStatement(parent) && !t.isFunction(parent))
       position = statementPosition(parent, parents);
+    const repeating = result.repeating || t.isLoop(parent);
     if (position !== null && position !== result.position)
-      result = { ...result, position };
+      result = {
+        position,
+        repeating,
+        activation: result.activation,
+        outer: result,
+      };
+    else if (repeating !== result.repeating) result = { ...result, repeating };
     cache.set(node, result);
   }
   return result;
@@ -629,7 +645,8 @@ const bindingReadPosition = (
 
 /** Select a local alias at its read, before any later straight-line reassignment. */
 type SemanticBindingRead = {
-  readonly status: "ordered" | "unresolved";
+  /** Deferred lexical initializers belong to another function/field activation. */
+  readonly status: "ordered" | "deferred" | "unresolved";
   /** A retained initializer executes on paths reaching this particular read. */
   readonly hasDefiniteInitializer: boolean;
   /** Unresolved reads retain all possible origins for conservative alias effects. */
@@ -655,7 +672,26 @@ export const semanticBindingAtRead = (
         ? null
         : initializerPosition(reference, parents, true)
       : initializerPosition(initializer, parents);
-  const { position, repeating } = bindingReadPosition(read, parents);
+  let readPosition = bindingReadPosition(read, parents);
+  const { repeating, activation } = readPosition;
+  const stableLexicalInitializer =
+    binding.initializers.length + binding.referenceInitializers.length === 1 &&
+    binding.declarationKinds.size > 0 &&
+    !binding.declarationKinds.has("var") &&
+    !binding.definitions.some(({ kind }) => kind === "assignment");
+  const deferred =
+    stableLexicalInitializer &&
+    origin !== undefined &&
+    bindingReadPosition(origin.node, parents).activation !== activation;
+  // Block and loop bodies execute within their containing activation. Retain
+  // ancestor positions, keeping repetition distinct from deferred captures.
+  while (
+    sourcePosition !== null &&
+    readPosition.position?.body !== sourcePosition.body &&
+    readPosition.outer !== null
+  )
+    readPosition = readPosition.outer;
+  const { position } = readPosition;
   // Coverage and latest-value selection are independent. A preceding write
   // can cover entry even when another write's order remains unknown.
   const hasDefiniteInitializer =
@@ -668,8 +704,14 @@ export const semanticBindingAtRead = (
         !initializerMayRetainEntry(initializer, binding, parents)
       );
     });
+  const repeatedOrigins = repeating && !stableLexicalInitializer;
+  const unresolved: SemanticBindingRead = {
+    status: deferred ? "deferred" : "unresolved",
+    binding,
+    hasDefiniteInitializer,
+  };
   if (
-    !repeating &&
+    !repeatedOrigins &&
     origin !== undefined &&
     binding.initializers.length + binding.referenceInitializers.length === 1 &&
     sourcePosition !== null &&
@@ -682,15 +724,13 @@ export const semanticBindingAtRead = (
       hasDefiniteInitializer,
     };
   const uncertainOrder =
-    repeating ||
+    repeatedOrigins ||
     sourcePosition === null ||
     position === null ||
     sourcePosition.body !== position.body;
-  if (uncertainOrder)
-    return { status: "unresolved", binding, hasDefiniteInitializer };
+  if (uncertainOrder) return unresolved;
   const selected = selectInitializers(binding, position, read, parents);
-  if (selected === undefined)
-    return { status: "unresolved", binding, hasDefiniteInitializer };
+  if (selected === undefined) return unresolved;
   if (selected.binding === binding)
     return {
       status: "ordered",

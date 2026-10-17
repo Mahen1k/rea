@@ -87,3 +87,18 @@ it("keeps cancellation uncertain across a mutable closure capture", () => {
     resolution: "partial",
   });
 });
+
+it("does not treat a future loop-local timer handle as a deferred capture", () => {
+  const operations = timerOperations(`
+    for (let i = 0; i < 1; i++) {
+      clearTimeout(handle);
+      const handle = setTimeout(work, 10);
+    }
+  `);
+  expect(operations[0]).toMatchObject({
+    kind: "cancel",
+    linkedTimerId: null,
+    resolution: "unresolved",
+  });
+  expect(operations[1]?.kind).toBe("schedule");
+});

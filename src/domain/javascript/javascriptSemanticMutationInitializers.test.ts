@@ -61,7 +61,7 @@ it.each([
       runtimeImport: false,
     };
     expect(semanticBindingAtRead(binding, read, parents).status).toBe(
-      ordered ? "ordered" : "unresolved",
+      ordered ? "ordered" : "deferred",
     );
     expect(
       semanticTopLevelEffectFollowsCapture(initializer, read, parents),
