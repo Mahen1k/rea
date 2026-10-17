@@ -175,9 +175,11 @@ export class IdaProvider implements AnalysisProviderCandidate {
         compatibility_profile:
           config.value.protocol === "native"
             ? "native-ida-mcp"
-            : config.value.mode === "attached"
-              ? "legacy-1.4"
-              : "database-supervisor",
+            : config.value.protocol === "hexrays"
+              ? "hexrays-ida-mcp"
+              : config.value.mode === "attached"
+                ? "legacy-1.4"
+                : "database-supervisor",
         database_revision: null,
         cache_policy: "live",
         registration_digest: createHash("sha256")
